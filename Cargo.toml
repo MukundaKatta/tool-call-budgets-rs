@@ -8,6 +8,7 @@ keywords = ["llm", "agents", "ai", "budget", "tool"]
 categories = ["asynchronous", "rust-patterns"]
 repository = "https://github.com/MukundaKatta/tool-call-budgets-rs"
 readme = "README.md"
+exclude = ["target/*", ".github/*", "*.log"]
 
 [features]
 default = []
