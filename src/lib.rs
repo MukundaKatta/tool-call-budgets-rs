@@ -79,10 +79,7 @@ impl BudgetStore {
     }
 
     fn limit_for(&self, tool_name: &str) -> Option<usize> {
-        self.budgets
-            .get(tool_name)
-            .copied()
-            .or(self.default_budget)
+        self.budgets.get(tool_name).copied().or(self.default_budget)
     }
 
     /// Check without recording. Returns `Err(BudgetExceeded)` if at limit.
@@ -130,6 +127,46 @@ impl BudgetStore {
     /// All configured budgets.
     pub fn budgets(&self) -> &HashMap<String, usize> {
         &self.budgets
+    }
+
+    /// Total number of recorded calls across every tool.
+    ///
+    /// Useful for run-level reporting (e.g. "this run made 42 tool calls").
+    ///
+    /// ```
+    /// # use tool_call_budgets::BudgetStore;
+    /// let mut s = BudgetStore::new();
+    /// s.record("search");
+    /// s.record("search");
+    /// s.record("fetch_url");
+    /// assert_eq!(s.total_calls(), 3);
+    /// ```
+    pub fn total_calls(&self) -> usize {
+        self.counts.values().sum()
+    }
+
+    /// Whether a tool has reached (or exceeded) its budget.
+    ///
+    /// Returns `false` for tools that have no budget and no default, since an
+    /// unbudgeted tool can never be "at budget". This is the boolean
+    /// counterpart to [`remaining`](Self::remaining): a tool is at budget
+    /// exactly when [`check`](Self::check) would return an error.
+    ///
+    /// ```
+    /// # use tool_call_budgets::BudgetStore;
+    /// let mut s = BudgetStore::new();
+    /// s.set_budget("search", 2);
+    /// assert!(!s.at_budget("search"));
+    /// s.record("search");
+    /// s.record("search");
+    /// assert!(s.at_budget("search"));
+    /// assert!(!s.at_budget("never_configured"));
+    /// ```
+    pub fn at_budget(&self, tool_name: &str) -> bool {
+        match self.limit_for(tool_name) {
+            Some(limit) => self.count(tool_name) >= limit,
+            None => false,
+        }
     }
 
     /// Serialize current state to JSON.
@@ -286,6 +323,36 @@ mod tests {
         s.record("t");
         s.record("t");
         assert_eq!(s.counts()["t"], 2);
+    }
+
+    #[test]
+    fn total_calls_sums_counts() {
+        let mut s = BudgetStore::new();
+        assert_eq!(s.total_calls(), 0);
+        s.record("a");
+        s.record("a");
+        s.record("b");
+        assert_eq!(s.total_calls(), 3);
+    }
+
+    #[test]
+    fn at_budget_tracks_check() {
+        let mut s = BudgetStore::new();
+        s.set_budget("t", 2);
+        assert!(!s.at_budget("t"));
+        s.record("t");
+        assert!(!s.at_budget("t"));
+        s.record("t");
+        assert!(s.at_budget("t"));
+        // at_budget agrees with check().
+        assert_eq!(s.at_budget("t"), s.check("t").is_err());
+    }
+
+    #[test]
+    fn at_budget_false_for_unbudgeted() {
+        let mut s = BudgetStore::new();
+        s.record("t");
+        assert!(!s.at_budget("t"));
     }
 
     #[test]
